@@ -13,6 +13,8 @@ A single Windows installer bundling four dependency-free 14th_ua World of Tanks 
 None of the four have any vendor dependency (no OpenWG GameFace, no ModsSettingsAPI) -
 each installs standalone.
 
+Targets World of Tanks client **2.4.0.1**.
+
 ## Installing
 
 Run `14th_ua-MiniModpack-Setup-<version>.exe`. It auto-detects your World of Tanks
