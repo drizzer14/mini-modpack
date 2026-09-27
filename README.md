@@ -13,7 +13,20 @@ A single Windows installer bundling four dependency-free 14th_ua World of Tanks 
 None of the four have any vendor dependency (no OpenWG GameFace, no ModsSettingsAPI) -
 each installs standalone.
 
-Targets World of Tanks client **2.4.0.1**.
+Targets World of Tanks client **2.4.0.1**. The installer warns (but does not block) if
+your client reports a different version.
+
+## Notes & disclaimers
+
+- **Class Icons Recolor** and **Neutral Reticle** are derived from Wargaming client
+  assets (recolored icons / modified reticle SWFs) - not endorsed by Wargaming - and
+  each replaces the corresponding stock file wholesale, so it conflicts with any other
+  mod that also overrides the same file.
+- **UA Vehicle Rename**'s package id, `com.14th_ua.super_secret_mod`, is historical: it
+  is the mod's original working-title id from before its current name and scope were
+  settled, kept unchanged since so existing installs upgrade in place. It only renames
+  vehicles - nothing about it is hidden or secret. Some default renames include mature
+  language by design.
 
 ## Installing
 
