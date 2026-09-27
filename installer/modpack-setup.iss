@@ -16,7 +16,7 @@
 ; Build:  see installer\build_installer.ps1  (needs Inno Setup's ISCC + the
 ;         four payload .wotmods already staged by build\gather_payload.py).
 
-#define AppVer "1.1.0"
+#define AppVer "1.1.1"
 #include "..\payload\payload.iss"
 
 [Setup]
