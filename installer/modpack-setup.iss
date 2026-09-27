@@ -17,9 +17,11 @@
 ;         four payload .wotmods already staged by build\gather_payload.py).
 
 #define AppVer "1.1.1"
+#define SupportedClientVersion "2.4.0.1"
 #include "..\payload\payload.iss"
 
 [Setup]
+UninstallFilesDir={localappdata}\14th_ua-MiniModpack\uninstall
 AppId={{6C9F2E7A-4B1D-4E63-9A2C-3F8D5B7C1A02}
 AppName=14th_ua's Mini Modpack
 AppVersion={#AppVer}
@@ -218,6 +220,18 @@ begin
       Result := False;
       Exit;
     end;
+    if GVersion <> '{#SupportedClientVersion}' then
+    begin
+      if MsgBox('This modpack was built and tested for World of Tanks ' +
+                'client {#SupportedClientVersion}, but this installation ' +
+                'reports client ' + GVersion + '. The bundled mods may ' +
+                'not load, or may misbehave, on a different client.' +
+                #13#10#13#10 + 'Continue anyway?', mbConfirmation, MB_YESNO) = IDNO then
+      begin
+        Result := False;
+        Exit;
+      end;
+    end;
   end;
 end;
 
@@ -229,12 +243,31 @@ begin
               'completely (exit the launcher too), then run this installer again.';
 end;
 
-{ Remove any older .wotmod of the given package-id prefix from mods\<version>\,
-  so a re-install (or a version bump) never leaves two copies of the same mod
-  loaded side by side. Only runs for a component the user actually selected. }
+{ Remove any older VERSIONED .wotmod of the given package-id prefix from
+  mods\<version>\, so a re-install (or a version bump) never leaves two
+  copies of the same mod loaded side by side. Only runs for a component the
+  user actually selected. A plain wildcard on "<IdPrefix>_*.wotmod" would
+  also sweep up an unrelated "<IdPrefix>_debug.wotmod" dev build, so only
+  delete a match whose suffix starts with a digit (a version number). }
 procedure CleanStalePackage(IdPrefix: string);
+var
+  Dir: string;
+  FindRec: TFindRec;
+  Rest: string;
 begin
-  DelTree(GetModsVersionDir('') + '\' + IdPrefix + '_*.wotmod', False, True, False);
+  Dir := GetModsVersionDir('');
+  if FindFirst(Dir + '\' + IdPrefix + '_*.wotmod', FindRec) then
+  begin
+    try
+      repeat
+        Rest := Copy(FindRec.Name, Length(IdPrefix) + 2, MaxInt);
+        if (Rest <> '') and (Rest[1] >= '0') and (Rest[1] <= '9') then
+          DeleteFile(Dir + '\' + FindRec.Name);
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -254,8 +287,23 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  { Make the Ready page remind the user to fully restart the client. }
   if CurPageID = wpReady then
+  begin
+    { Remind the user to fully restart the client. }
     WizardForm.ReadyMemo.Lines.Add(#13#10 +
       'After installing, fully restart World of Tanks to load the mods.');
+
+    { Per-mod notes/disclaimers, shown only for a component the user
+      actually selected -- see README.md "Notes & disclaimers". }
+    if WizardIsComponentSelected('classicons') or WizardIsComponentSelected('reticle') then
+      WizardForm.ReadyMemo.Lines.Add(#13#10 +
+        'Class Icons Recolor / Neutral Reticle are derived from Wargaming ' +
+        'client assets (not endorsed by Wargaming) and replace those stock ' +
+        'files wholesale, so they conflict with any other mod overriding ' +
+        'the same files.');
+    if WizardIsComponentSelected('rename') then
+      WizardForm.ReadyMemo.Lines.Add(#13#10 +
+        'UA Vehicle Rename renames vehicles to community Ukrainian names; ' +
+        'some default names include mature language by design.');
+  end;
 end;
