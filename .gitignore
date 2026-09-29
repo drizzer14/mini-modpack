@@ -2,3 +2,4 @@ dist/
 payload/*.wotmod
 __pycache__/
 .pytest_cache/
+payload/vendor/

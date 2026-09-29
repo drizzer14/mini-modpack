@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Rebuild the four bundled mods and stage their .wotmod payloads for the installer.
+Rebuild the five bundled mods and stage their .wotmod payloads for the installer.
 
   python build/gather_payload.py
 
@@ -8,21 +8,28 @@ What it does:
   1. For each sibling mod repo: refuses a dirty working tree or a HEAD that
      isn't tagged v<meta.xml version> (see _verify_sibling_clean), then runs
      the repo's own build/build_wotmod.py (with the interpreter that repo's
-     build requires -- Python 2.7 for the three that ship compiled .pyc,
+     build requires -- Python 2.7 for the four that ship compiled .pyc,
      plain Python 3 for class-icons-recolor which ships no Python at all).
   2. Copies each repo's freshly built dist\\*.wotmod into payload\\, then
      refuses to stage it if any shipped .pyc has an absolute path baked into
      its bytecode (see _assert_no_absolute_pyc_paths).
-  3. Emits payload\\payload.iss: one #define per mod with its exact built
+  3. Copies Spotting Calculator's vendor dependencies (OpenWG GameFace, Aslain
+     ModMenu, ModsList API + the GameFace MIT licence) from that repo's
+     installer\\vendor into payload\\vendor, refusing any .wotmod whose sha256
+     doesn't match its MANIFEST.json entry (see _stage_vendor).
+  4. Emits payload\\payload.iss: one #define per mod with its exact built
      filename, one with its meta.xml <id> prefix, and one with the sibling's
-     HEAD sha (provenance), #include'd by installer\\modpack-setup.iss so the
-     .iss never hardcodes a version number or a package id.
+     HEAD sha (provenance), plus one filename #define per vendor dependency,
+     #include'd by installer\\modpack-setup.iss so the .iss never hardcodes a
+     version number or a package id.
 
-Each mod repo is a dependency-free sibling of this one (..\\<repo-name>).
+Each mod repo is a sibling of this one (..\\<repo-name>).
 """
 from __future__ import print_function
 
 import glob
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -51,7 +58,20 @@ MODS = [
     ("class-icons-recolor", "ClassIcons", sys.executable),
     ("neutral_reticle", "NeutralReticle", PY27),
     ("ua-rename", "UaRename", PY27),
+    ("spotting_calculator", "Spotting", PY27),
 ]
+
+# Spotting Calculator's vendor deps, single-sourced from that repo's own
+# installer\vendor (filenames + sha256 from its MANIFEST.json). Each
+# (filename prefix, #define name) -> payload.iss gets <define> "<filename>".
+VENDOR_SRC = os.path.join(SIBLINGS, "spotting_calculator", "installer")
+VENDOR_DEST = os.path.join(PAYLOAD, "vendor")
+VENDOR_DEFINES = [
+    ("net.openwg.gameface_", "OpenWgWotmod"),
+    ("aslain.modmenu_", "ModMenuWotmod"),
+    ("me.poliroid.modslistapi_", "ModsListWotmod"),
+]
+OPENWG_LICENSE = os.path.join(VENDOR_SRC, "licenses", "openwg-gameface-LICENSE.txt")
 
 
 def _verify_sibling_clean(repo_dir, version):
@@ -99,6 +119,32 @@ def _assert_no_absolute_pyc_paths(wotmod_path):
                 )
 
 
+def _stage_vendor(vendor_dir, manifest, dest_dir):
+    """Copy every .wotmod listed in manifest ({filename: {"sha256": ...}})
+    from vendor_dir into dest_dir, refusing on a missing file or a sha256
+    mismatch. Returns the staged filenames."""
+    if not os.path.isdir(dest_dir):
+        os.makedirs(dest_dir)
+    staged = []
+    for filename, entry in sorted(manifest.items()):
+        if not filename.endswith(".wotmod"):
+            continue  # "_comment" etc.
+        src = os.path.join(vendor_dir, filename)
+        if not os.path.isfile(src):
+            sys.exit("ERROR: vendor file missing: {0}".format(src))
+        with open(src, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if digest != entry["sha256"].lower():
+            sys.exit(
+                "ERROR: {0} sha256 {1} does not match MANIFEST.json {2}".format(
+                    src, digest, entry["sha256"]
+                )
+            )
+        shutil.copy2(src, os.path.join(dest_dir, filename))
+        staged.append(filename)
+    return staged
+
+
 def _build_one(repo_name, python_exe):
     """Build repo_name's mod and return (built .wotmod path, meta.xml <id>,
     sibling HEAD sha).
@@ -133,6 +179,8 @@ def main():
         os.makedirs(PAYLOAD)
     for stale in glob.glob(os.path.join(PAYLOAD, "*.wotmod")):
         os.remove(stale)
+    if os.path.isdir(VENDOR_DEST):
+        shutil.rmtree(VENDOR_DEST)
 
     defines = []
     for repo_name, base_name, python_exe in MODS:
@@ -146,6 +194,20 @@ def main():
         defines.append((base_name + "Sha", sha))
         print("Staged: {0} ({1})".format(filename, sha[:8]))
 
+    # After the loop: spotting_calculator's tree was just verified clean at
+    # its release tag, so its vendor dir is the tagged copy.
+    vendor_dir = os.path.join(VENDOR_SRC, "vendor")
+    with open(os.path.join(vendor_dir, "MANIFEST.json")) as f:
+        manifest = json.load(f)
+    vendor = _stage_vendor(vendor_dir, manifest, VENDOR_DEST)
+    shutil.copy2(OPENWG_LICENSE, VENDOR_DEST)
+    for prefix, define_name in VENDOR_DEFINES:
+        match = [v for v in vendor if v.startswith(prefix)]
+        if len(match) != 1:
+            sys.exit("ERROR: expected one {0}*.wotmod in vendor, found {1}".format(prefix, match))
+        defines.append((define_name, match[0]))
+        print("Staged vendor: {0}".format(match[0]))
+
     iss_path = os.path.join(PAYLOAD, "payload.iss")
     with open(iss_path, "w") as f:
         for define_name, value in defines:
@@ -156,16 +218,16 @@ def main():
 
 
 def _self_check(defines):
-    """One runnable check: exactly four payloads staged, four wotmod + four
-    id-prefix + four sha defines emitted."""
+    """One runnable check: one staged payload + Wotmod/IdPrefix/Sha define
+    per mod, plus one staged file + Wotmod define per vendor dependency."""
+    n, nv = len(MODS), len(VENDOR_DEFINES)
     staged = glob.glob(os.path.join(PAYLOAD, "*.wotmod"))
-    assert len(staged) == 4, "expected 4 .wotmod files in payload\\, found {0}".format(len(staged))
-    wotmod_defines = [n for n, _ in defines if n.endswith("Wotmod")]
-    idprefix_defines = [n for n, _ in defines if n.endswith("IdPrefix")]
-    sha_defines = [n for n, _ in defines if n.endswith("Sha")]
-    assert len(wotmod_defines) == 4, "expected 4 Wotmod defines, found {0}".format(len(wotmod_defines))
-    assert len(idprefix_defines) == 4, "expected 4 IdPrefix defines, found {0}".format(len(idprefix_defines))
-    assert len(sha_defines) == 4, "expected 4 Sha defines, found {0}".format(len(sha_defines))
+    assert len(staged) == n, "expected {0} .wotmod files in payload\\, found {1}".format(n, len(staged))
+    vendor = glob.glob(os.path.join(VENDOR_DEST, "*.wotmod"))
+    assert len(vendor) == nv, "expected {0} vendor .wotmods, found {1}".format(nv, len(vendor))
+    for suffix, want in (("Wotmod", n + nv), ("IdPrefix", n), ("Sha", n)):
+        got = len([k for k, _ in defines if k.endswith(suffix)])
+        assert got == want, "expected {0} {1} defines, found {2}".format(want, suffix, got)
 
 
 if __name__ == "__main__":

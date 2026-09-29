@@ -75,3 +75,30 @@ def test_assert_no_absolute_pyc_paths_rejects_windows_leak(tmp_path):
     )
     with pytest.raises(SystemExit):
         gather_payload._assert_no_absolute_pyc_paths(path)
+
+
+def _vendor(tmp_path, content=b"vendor-bytes"):
+    import hashlib
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.dep_1.0.wotmod").write_bytes(content)
+    manifest = {
+        "_comment": "ignored",
+        "a.dep_1.0.wotmod": {"sha256": hashlib.sha256(b"vendor-bytes").hexdigest()},
+    }
+    return str(src), manifest, str(tmp_path / "dest")
+
+
+def test_stage_vendor_copies_on_sha_match(tmp_path):
+    src, manifest, dest = _vendor(tmp_path)
+    staged = gather_payload._stage_vendor(src, manifest, dest)
+    assert staged == ["a.dep_1.0.wotmod"]
+    assert os.path.isfile(os.path.join(dest, "a.dep_1.0.wotmod"))
+
+
+def test_stage_vendor_rejects_sha_mismatch(tmp_path):
+    src, manifest, dest = _vendor(tmp_path, content=b"tampered")
+    with pytest.raises(SystemExit):
+        gather_payload._stage_vendor(src, manifest, dest)
+    assert not os.path.exists(os.path.join(dest, "a.dep_1.0.wotmod"))

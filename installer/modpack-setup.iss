@@ -4,19 +4,21 @@
 ;   1. Detects the World of Tanks install folder (registry + common paths), lets
 ;      the user confirm/override it, and validates it (version.xml present).
 ;   2. Resolves the client version (e.g. 2.4.0.1) and targets mods\<version>\.
-;   3. Lets the user pick which of the four bundled mods to install.
+;   3. Lets the user pick which of the five bundled mods to install.
 ;   4. For each selected mod, removes any older build of that SAME mod already
 ;      in mods\<version>\ (so a re-install never double-loads two versions),
 ;      then installs the fresh .wotmod.
-;
-; These four mods are dependency-free (no OpenWG/MSA/ModsList required), so
-; unlike Garage Progress Bar's installer this one has no vendor-dependency
-; [Files] gating and no self-update check (YAGNI for v1).
+;   5. Spotting Calculator only: its settings-panel dependencies (OpenWG
+;      GameFace, Aslain ModMenu, ModsList API) ride along as a sub-component,
+;      each copied ONLY when no copy of it is already present (any version --
+;      same policy as Spotting Calculator's own installer) and never removed
+;      on uninstall (other mods share them). The other four mods are
+;      dependency-free. No self-update check (YAGNI).
 ;
 ; Build:  see installer\build_installer.ps1  (needs Inno Setup's ISCC + the
-;         four payload .wotmods already staged by build\gather_payload.py).
+;         payload staged by build\gather_payload.py).
 
-#define AppVer "1.1.1"
+#define AppVer "1.2.0"
 #define SupportedClientVersion "2.4.0.1"
 #include "..\payload\payload.iss"
 
@@ -51,12 +53,21 @@ Name: "hint"; Description: "14th_ua's Hint Silencer"; Types: full custom
 Name: "classicons"; Description: "Class Icons Recolor"; Types: full custom
 Name: "reticle"; Description: "Neutral Reticle"; Types: full custom
 Name: "rename"; Description: "UA Vehicle Rename"; Types: full custom
+Name: "spotting"; Description: "Spotting Calculator"; Types: full custom
+Name: "spotting\deps"; Description: "Settings-panel dependencies: Aslain ModMenu, ModsList API, OpenWG GameFace (each skipped if already installed)"; Types: full custom
 
 [Files]
 Source: "..\payload\{#HintSilencerWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: hint
 Source: "..\payload\{#ClassIconsWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: classicons
 Source: "..\payload\{#NeutralReticleWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: reticle
 Source: "..\payload\{#UaRenameWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: rename
+Source: "..\payload\{#SpottingWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: spotting
+; Spotting Calculator's vendor deps: copied only when absent, never uninstalled
+; (other mods share them) -- mirrors spotting_calculator's own installer.
+Source: "..\payload\vendor\{#OpenWgWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedOpenWg
+Source: "..\payload\vendor\openwg-gameface-LICENSE.txt"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedOpenWg
+Source: "..\payload\vendor\{#ModMenuWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedModMenu
+Source: "..\payload\vendor\{#ModsListWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedModsList
 
 [Messages]
 ; Repurpose the "Select Destination Location" page for picking the WoT root.
@@ -177,6 +188,56 @@ begin
   Result := ExpandConstant('{app}') + '\mods\' + GVersion;
 end;
 
+{ ---- vendor-dependency presence (Spotting Calculator) -------------------- }
+
+{ Recursive search for a file matching Mask under Dir (as in
+  spotting_calculator's own installer). }
+function FindWotmodIn(Dir, Mask: string): Boolean;
+var
+  FR: TFindRec;
+begin
+  Result := False;
+  if FindFirst(Dir + '\' + Mask, FR) then
+  begin
+    FindClose(FR);
+    Result := True;
+    Exit;
+  end;
+  if FindFirst(Dir + '\*', FR) then
+  begin
+    try
+      repeat
+        if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+          if (FR.Name <> '.') and (FR.Name <> '..') then
+            if FindWotmodIn(Dir + '\' + FR.Name, Mask) then
+            begin
+              Result := True;
+              Exit;
+            end;
+      until not FindNext(FR);
+    finally
+      FindClose(FR);
+    end;
+  end;
+end;
+
+function NeedOpenWg(): Boolean;
+begin
+  Result := not FindWotmodIn(GetModsVersionDir(''), 'net.openwg.gameface*.wotmod');
+end;
+
+{ Narrow to Aslain's build on purpose: a leftover izeberg.modssettingsapi*
+  must not count as present. }
+function NeedModMenu(): Boolean;
+begin
+  Result := not FindWotmodIn(GetModsVersionDir(''), 'aslain.modmenu*.wotmod');
+end;
+
+function NeedModsList(): Boolean;
+begin
+  Result := not FindWotmodIn(GetModsVersionDir(''), 'me.poliroid.modslistapi*.wotmod');
+end;
+
 { ---- WoT-running guard (file locks) -------------------------------------- }
 
 function IsWotRunning(): Boolean;
@@ -225,8 +286,8 @@ begin
       if MsgBox('This modpack was built and tested for World of Tanks ' +
                 'client {#SupportedClientVersion}, but this installation ' +
                 'reports client ' + GVersion + '. The bundled mods may ' +
-                'not load, or may misbehave, on a different client.' +
-                #13#10#13#10 + 'Continue anyway?', mbConfirmation, MB_YESNO) = IDNO then
+                'not load, or may misbehave, on a different client.' + #13#10#13#10 +
+                'Continue anyway?', mbConfirmation, MB_YESNO) = IDNO then
       begin
         Result := False;
         Exit;
@@ -282,6 +343,8 @@ begin
       CleanStalePackage('{#NeutralReticleIdPrefix}');
     if WizardIsComponentSelected('rename') then
       CleanStalePackage('{#UaRenameIdPrefix}');
+    if WizardIsComponentSelected('spotting') then
+      CleanStalePackage('{#SpottingIdPrefix}');
   end;
 end;
 
@@ -305,5 +368,11 @@ begin
       WizardForm.ReadyMemo.Lines.Add(#13#10 +
         'UA Vehicle Rename renames vehicles to community Ukrainian names; ' +
         'some default names include mature language by design.');
+    if WizardIsComponentSelected('spotting') then
+      WizardForm.ReadyMemo.Lines.Add(#13#10 +
+        'Spotting Calculator''s settings panel needs Aslain ModMenu, ' +
+        'ModsList API and OpenWG GameFace (bundled; each installed only if ' +
+        'missing); its minimap rings work without them. Fair Play: it uses ' +
+        'only your own vehicle data and values you enter.');
   end;
 end;
