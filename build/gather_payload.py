@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Rebuild the five bundled mods and stage their .wotmod payloads for the installer.
+Rebuild the six bundled mods and stage their .wotmod payloads for the installer.
 
   python build/gather_payload.py
 
@@ -8,7 +8,7 @@ What it does:
   1. For each sibling mod repo: refuses a dirty working tree or a HEAD that
      isn't tagged v<meta.xml version> (see _verify_sibling_clean), then runs
      the repo's own build/build_wotmod.py (with the interpreter that repo's
-     build requires -- Python 2.7 for the four that ship compiled .pyc,
+     build requires -- Python 2.7 for the five that ship compiled .pyc,
      plain Python 3 for class-icons-recolor which ships no Python at all).
   2. Copies each repo's freshly built dist\\*.wotmod into payload\\, then
      refuses to stage it if any shipped .pyc has an absolute path baked into
@@ -16,7 +16,9 @@ What it does:
   3. Copies Spotting Calculator's vendor dependencies (OpenWG GameFace, Aslain
      ModMenu, ModsList API + the GameFace MIT licence) from that repo's
      installer\\vendor into payload\\vendor, refusing any .wotmod whose sha256
-     doesn't match its MANIFEST.json entry (see _stage_vendor).
+     doesn't match its MANIFEST.json entry (see _stage_vendor). 14th_ua HP
+     shares the staged OpenWG GameFace; its own MANIFEST.json must pin the
+     same file (see _assert_vendor_covered).
   4. Emits payload\\payload.iss: one #define per mod with its exact built
      filename, one with its meta.xml <id> prefix, and one with the sibling's
      HEAD sha (provenance), plus one filename #define per vendor dependency,
@@ -59,7 +61,13 @@ MODS = [
     ("neutral_reticle", "NeutralReticle", PY27),
     ("ua-rename", "UaRename", PY27),
     ("spotting_calculator", "Spotting", PY27),
+    ("14th_ua_hp", "TeamHp", PY27),
 ]
+
+# 14th_ua HP hard-requires OpenWG GameFace; it reuses the copy staged from
+# spotting_calculator's vendor dir, so its own MANIFEST.json must pin the
+# exact same file (see _assert_vendor_covered).
+HP_MANIFEST = os.path.join(SIBLINGS, "14th_ua_hp", "installer", "vendor", "MANIFEST.json")
 
 # Spotting Calculator's vendor deps, single-sourced from that repo's own
 # installer\vendor (filenames + sha256 from its MANIFEST.json). Each
@@ -145,6 +153,22 @@ def _stage_vendor(vendor_dir, manifest, dest_dir):
     return staged
 
 
+def _assert_vendor_covered(needed, staged):
+    """Refuse when a mod's vendor manifest ({filename: {"sha256": ...}})
+    needs a .wotmod that isn't staged under the same name + sha256."""
+    for filename, entry in needed.items():
+        if not filename.endswith(".wotmod"):
+            continue
+        have = staged.get(filename)
+        if not have or have["sha256"].lower() != entry["sha256"].lower():
+            sys.exit(
+                "ERROR: vendor dependency {0} (sha256 {1}) is not in the "
+                "staged vendor set -- re-pin it to the bundled copy.".format(
+                    filename, entry["sha256"]
+                )
+            )
+
+
 def _build_one(repo_name, python_exe):
     """Build repo_name's mod and return (built .wotmod path, meta.xml <id>,
     sibling HEAD sha).
@@ -200,6 +224,8 @@ def main():
     with open(os.path.join(vendor_dir, "MANIFEST.json")) as f:
         manifest = json.load(f)
     vendor = _stage_vendor(vendor_dir, manifest, VENDOR_DEST)
+    with open(HP_MANIFEST) as f:
+        _assert_vendor_covered(json.load(f), manifest)
     shutil.copy2(OPENWG_LICENSE, VENDOR_DEST)
     for prefix, define_name in VENDOR_DEFINES:
         match = [v for v in vendor if v.startswith(prefix)]

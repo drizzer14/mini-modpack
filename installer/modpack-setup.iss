@@ -3,8 +3,8 @@
 ; What it does, one double-click:
 ;   1. Detects the World of Tanks install folder (registry + common paths), lets
 ;      the user confirm/override it, and validates it (version.xml present).
-;   2. Resolves the client version (e.g. 2.4.0.1) and targets mods\<version>\.
-;   3. Lets the user pick which of the five bundled mods to install.
+;   2. Resolves the client version (e.g. 2.4.0.2) and targets mods\<version>\.
+;   3. Lets the user pick which of the six bundled mods to install.
 ;   4. For each selected mod, removes any older build of that SAME mod already
 ;      in mods\<version>\ (so a re-install never double-loads two versions),
 ;      then installs the fresh .wotmod.
@@ -12,14 +12,16 @@
 ;      GameFace, Aslain ModMenu, ModsList API) ride along as a sub-component,
 ;      each copied ONLY when no copy of it is already present (any version --
 ;      same policy as Spotting Calculator's own installer) and never removed
-;      on uninstall (other mods share them). The other four mods are
+;      on uninstall (other mods share them). 14th_ua HP hard-requires OpenWG
+;      GameFace, so the same OpenWG copy (same only-if-absent rule) also
+;      rides along whenever 14th_ua HP is selected. The other four mods are
 ;      dependency-free. No self-update check (YAGNI).
 ;
 ; Build:  see installer\build_installer.ps1  (needs Inno Setup's ISCC + the
 ;         payload staged by build\gather_payload.py).
 
-#define AppVer "1.2.0"
-#define SupportedClientVersion "2.4.0.1"
+#define AppVer "1.3.0"
+#define SupportedClientVersion "2.4.0.2"
 #include "..\payload\payload.iss"
 
 [Setup]
@@ -55,6 +57,7 @@ Name: "reticle"; Description: "Neutral Reticle"; Types: full custom
 Name: "rename"; Description: "UA Vehicle Rename"; Types: full custom
 Name: "spotting"; Description: "Spotting Calculator"; Types: full custom
 Name: "spotting\deps"; Description: "Settings-panel dependencies: Aslain ModMenu, ModsList API, OpenWG GameFace (each skipped if already installed)"; Types: full custom
+Name: "teamhp"; Description: "14th_ua HP (team HP bar; also installs OpenWG GameFace if missing)"; Types: full custom
 
 [Files]
 Source: "..\payload\{#HintSilencerWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: hint
@@ -62,10 +65,12 @@ Source: "..\payload\{#ClassIconsWotmod}"; DestDir: "{code:GetModsVersionDir}"; F
 Source: "..\payload\{#NeutralReticleWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: reticle
 Source: "..\payload\{#UaRenameWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: rename
 Source: "..\payload\{#SpottingWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: spotting
-; Spotting Calculator's vendor deps: copied only when absent, never uninstalled
-; (other mods share them) -- mirrors spotting_calculator's own installer.
-Source: "..\payload\vendor\{#OpenWgWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedOpenWg
-Source: "..\payload\vendor\openwg-gameface-LICENSE.txt"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedOpenWg
+Source: "..\payload\{#TeamHpWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: teamhp
+; Vendor deps: copied only when absent, never uninstalled (other mods share
+; them) -- mirrors spotting_calculator's own installer. OpenWG also serves
+; 14th_ua HP (hard dependency).
+Source: "..\payload\vendor\{#OpenWgWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps or teamhp; Check: NeedOpenWg
+Source: "..\payload\vendor\openwg-gameface-LICENSE.txt"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps or teamhp; Check: NeedOpenWg
 Source: "..\payload\vendor\{#ModMenuWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedModMenu
 Source: "..\payload\vendor\{#ModsListWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedModsList
 
@@ -76,7 +81,7 @@ SelectDirBrowseLabel=Confirm your World of Tanks installation folder (the one co
 
 [Code]
 var
-  GVersion: string;  { resolved game version, e.g. 2.4.0.1 }
+  GVersion: string;  { resolved game version, e.g. 2.4.0.2 }
 
 { ---- WoT root / version detection (same shape as Garage Progress Bar's) --- }
 
@@ -88,7 +93,7 @@ begin
              FileExists(Path + '\WorldOfTanks.exe'));
 end;
 
-{ Parse "<version> v.2.4.0.1 #930 </version>" -> "2.4.0.1" }
+{ Parse "<version> v.2.4.0.2 #930 </version>" -> "2.4.0.2" }
 function ReadGameVersion(Root: string): string;
 var
   S: AnsiString;
@@ -345,6 +350,8 @@ begin
       CleanStalePackage('{#UaRenameIdPrefix}');
     if WizardIsComponentSelected('spotting') then
       CleanStalePackage('{#SpottingIdPrefix}');
+    if WizardIsComponentSelected('teamhp') then
+      CleanStalePackage('{#TeamHpIdPrefix}');
   end;
 end;
 
@@ -374,5 +381,14 @@ begin
         'ModsList API and OpenWG GameFace (bundled; each installed only if ' +
         'missing); its minimap rings work without them. Fair Play: it uses ' +
         'only your own vehicle data and values you enter.');
+    if WizardIsComponentSelected('teamhp') then
+      WizardForm.ReadyMemo.Lines.Add(#13#10 +
+        '14th_ua HP needs OpenWG GameFace (bundled; installed only if ' +
+        'missing). During a battle it sets the game option "Show vehicle HP ' +
+        'in players panel" to Never and restores your setting afterwards. ' +
+        'Fair Play note: its red "one-shot" band uses only your loaded ' +
+        'shell''s damage and the HP the players panel already shows. ' +
+        'Contains a font derived from Wargaming client assets (not endorsed ' +
+        'by Wargaming).');
   end;
 end;

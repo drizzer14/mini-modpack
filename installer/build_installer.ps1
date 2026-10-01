@@ -3,7 +3,7 @@
     Build the 14th_ua's Mini Modpack Windows installer (setup.exe) with Inno Setup.
 
     Prerequisites:
-      1. The payload (five mod .wotmods + payloadendor) must already be staged into ..\payload by:
+      1. The payload (six mod .wotmods + payload\vendor) must already be staged into ..\payload by:
              python build\gather_payload.py
       2. Inno Setup must be installed (provides ISCC.exe):
              winget install -e --id JRSoftware.InnoSetup
