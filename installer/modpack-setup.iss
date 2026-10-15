@@ -10,10 +10,11 @@
 ;      then installs the fresh .wotmod.
 ;   5. Spotting Calculator only: its settings-panel dependencies (OpenWG
 ;      GameFace, Aslain ModMenu, ModsList API) ride along as a sub-component,
-;      each copied ONLY when no copy of it is already present (any version --
-;      same policy as Spotting Calculator's own installer) and never removed
-;      on uninstall (other mods share them). 14th_ua HP hard-requires OpenWG
-;      GameFace, so the same OpenWG copy (same only-if-absent rule) also
+;      each copied ONLY when no same-or-newer copy of it is already present
+;      (older copies are then deleted -- same policy as Spotting Calculator's
+;      own installer) and never removed on uninstall (other mods share them).
+;      14th_ua HP hard-requires OpenWG GameFace, so the same OpenWG copy (same
+;      version-aware rule) also
 ;      rides along whenever 14th_ua HP is selected. The other four mods are
 ;      dependency-free. No self-update check (YAGNI).
 ;
@@ -66,13 +67,15 @@ Source: "..\payload\{#NeutralReticleWotmod}"; DestDir: "{code:GetModsVersionDir}
 Source: "..\payload\{#UaRenameWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: rename
 Source: "..\payload\{#SpottingWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: spotting
 Source: "..\payload\{#TeamHpWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion; Components: teamhp
-; Vendor deps: copied only when absent, never uninstalled (other mods share
-; them) -- mirrors spotting_calculator's own installer. OpenWG also serves
-; 14th_ua HP (hard dependency).
-Source: "..\payload\vendor\{#OpenWgWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps or teamhp; Check: NeedOpenWg
-Source: "..\payload\vendor\openwg-gameface-LICENSE.txt"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps or teamhp; Check: NeedOpenWg
-Source: "..\payload\vendor\{#ModMenuWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedModMenu
-Source: "..\payload\vendor\{#ModsListWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedModsList
+; Vendor deps: copied only when no same-or-newer copy is installed (older
+; copies are then deleted), never uninstalled (other mods share them) --
+; mirrors spotting_calculator's own installer. OpenWG also serves 14th_ua HP
+; (hard dependency). The licence line precedes the OpenWG .wotmod: Checks run
+; per entry, so after that copy NeedVendor would turn False for it.
+Source: "..\payload\vendor\openwg-gameface-LICENSE.txt"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps or teamhp; Check: NeedVendor('{#OpenWgWotmod}')
+Source: "..\payload\vendor\{#OpenWgWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps or teamhp; Check: NeedVendor('{#OpenWgWotmod}'); AfterInstall: PurgeOlderVendor('{#OpenWgWotmod}')
+Source: "..\payload\vendor\{#ModMenuWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedVendor('{#ModMenuWotmod}'); AfterInstall: PurgeOlderVendor('{#ModMenuWotmod}')
+Source: "..\payload\vendor\{#ModsListWotmod}"; DestDir: "{code:GetModsVersionDir}"; Flags: ignoreversion uninsneveruninstall; Components: spotting\deps; Check: NeedVendor('{#ModsListWotmod}'); AfterInstall: PurgeOlderVendor('{#ModsListWotmod}')
 
 [Messages]
 ; Repurpose the "Select Destination Location" page for picking the WoT root.
@@ -193,32 +196,100 @@ begin
   Result := ExpandConstant('{app}') + '\mods\' + GVersion;
 end;
 
-{ ---- vendor-dependency presence (Spotting Calculator) -------------------- }
+{ ---- vendor dependencies: version-aware presence ------------------------- }
+{ Shared verbatim by every 14th_ua installer. A bundled vendor .wotmod
+  '<id>_<version>.wotmod' is skipped only when a copy of the SAME package id at
+  the same or a newer version already sits under mods\<version>\ (recursive). An
+  older copy does not count (it may be dead on this client): the bundled build
+  is installed and the older copies of that id are deleted. The exact-id match
+  keeps it narrow, e.g. a leftover izeberg settings-API build never satisfies
+  aslain.modmenu. }
 
-{ Recursive search for a file matching Mask under Dir (as in
-  spotting_calculator's own installer). }
-function FindWotmodIn(Dir, Mask: string): Boolean;
+{ Compare dotted numeric versions part by part as integers, so Aslain's
+  zero-padded 2.1.04 equals 2.1.4. Negative, zero or positive like CompareText. }
+function CompareDottedVer(A, B: string): Integer;
 var
-  FR: TFindRec;
+  p: Integer;
+  PartA, PartB: string;
 begin
-  Result := False;
-  if FindFirst(Dir + '\' + Mask, FR) then
+  Result := 0;
+  while (Result = 0) and ((A <> '') or (B <> '')) do
   begin
-    FindClose(FR);
-    Result := True;
+    p := Pos('.', A);
+    if p = 0 then
+      p := Length(A) + 1;
+    PartA := Copy(A, 1, p - 1);
+    Delete(A, 1, p);
+    p := Pos('.', B);
+    if p = 0 then
+      p := Length(B) + 1;
+    PartB := Copy(B, 1, p - 1);
+    Delete(B, 1, p);
+    Result := StrToIntDef(PartA, 0) - StrToIntDef(PartB, 0);
+  end;
+end;
+
+{ Package id of a '<id>_<version>.wotmod' file name: the text before the last '_'. }
+function WotmodId(FileName: string): string;
+var
+  i: Integer;
+begin
+  Result := '';
+  for i := Length(FileName) downto 1 do
+    if FileName[i] = '_' then
+    begin
+      Result := Copy(FileName, 1, i - 1);
+      Exit;
+    end;
+end;
+
+{ Version of FileName when it is exactly Id + '_' + dotted digits + '.wotmod',
+  else ''. Anything else (another id, a suffix, a non-numeric part) is ignored. }
+function WotmodVer(FileName, Id: string): string;
+var
+  i: Integer;
+begin
+  Result := '';
+  if Length(FileName) < Length(Id) + 9 then
+    Exit;
+  if CompareText(Copy(FileName, 1, Length(Id) + 1), Id + '_') <> 0 then
+    Exit;
+  if CompareText(Copy(FileName, Length(FileName) - 6, 7), '.wotmod') <> 0 then
+    Exit;
+  Result := Copy(FileName, Length(Id) + 2, Length(FileName) - Length(Id) - 8);
+  if (Result[1] < '0') or (Result[1] > '9') then
+  begin
+    Result := '';
     Exit;
   end;
+  for i := 1 to Length(Result) do
+    if not (((Result[i] >= '0') and (Result[i] <= '9')) or (Result[i] = '.')) then
+    begin
+      Result := '';
+      Exit;
+    end;
+end;
+
+{ Highest version of package Id found under Dir (recursive), '' when none. }
+function MaxWotmodVerIn(Dir, Id: string): string;
+var
+  FR: TFindRec;
+  v: string;
+begin
+  Result := '';
   if FindFirst(Dir + '\*', FR) then
   begin
     try
       repeat
-        if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-          if (FR.Name <> '.') and (FR.Name <> '..') then
-            if FindWotmodIn(Dir + '\' + FR.Name, Mask) then
-            begin
-              Result := True;
-              Exit;
-            end;
+        if (FR.Name <> '.') and (FR.Name <> '..') then
+        begin
+          if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            v := MaxWotmodVerIn(Dir + '\' + FR.Name, Id)
+          else
+            v := WotmodVer(FR.Name, Id);
+          if (v <> '') and ((Result = '') or (CompareDottedVer(v, Result) > 0)) then
+            Result := v;
+        end;
       until not FindNext(FR);
     finally
       FindClose(FR);
@@ -226,21 +297,61 @@ begin
   end;
 end;
 
-function NeedOpenWg(): Boolean;
+{ [Files] Check: True unless Bundled's package id is already installed at
+  Bundled's version or newer. }
+function NeedVendor(Bundled: string): Boolean;
+var
+  Id, Have: string;
 begin
-  Result := not FindWotmodIn(GetModsVersionDir(''), 'net.openwg.gameface*.wotmod');
+  Id := WotmodId(Bundled);
+  Have := MaxWotmodVerIn(GetModsVersionDir(''), Id);
+  Result := (Have = '') or (CompareDottedVer(Have, WotmodVer(Bundled, Id)) < 0);
+  if Result then
+    Log('Vendor ' + Id + ': found "' + Have + '", installing bundled ' + Bundled)
+  else
+    Log('Vendor ' + Id + ': ' + Have + ' already installed, skipping bundled ' + Bundled);
 end;
 
-{ Narrow to Aslain's build on purpose: a leftover izeberg.modssettingsapi*
-  must not count as present. }
-function NeedModMenu(): Boolean;
+{ Delete every Id copy older than Ver under Dir (recursive). }
+procedure PurgeOlderWotmodsIn(Dir, Id, Ver: string);
+var
+  FR: TFindRec;
+  v: string;
 begin
-  Result := not FindWotmodIn(GetModsVersionDir(''), 'aslain.modmenu*.wotmod');
+  if FindFirst(Dir + '\*', FR) then
+  begin
+    try
+      repeat
+        if (FR.Name <> '.') and (FR.Name <> '..') then
+        begin
+          if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            PurgeOlderWotmodsIn(Dir + '\' + FR.Name, Id, Ver)
+          else
+          begin
+            v := WotmodVer(FR.Name, Id);
+            if (v <> '') and (CompareDottedVer(v, Ver) < 0) then
+            begin
+              if DeleteFile(Dir + '\' + FR.Name) then
+                Log('Removed outdated ' + Dir + '\' + FR.Name)
+              else
+                Log('Could not remove outdated ' + Dir + '\' + FR.Name);
+            end;
+          end;
+        end;
+      until not FindNext(FR);
+    finally
+      FindClose(FR);
+    end;
+  end;
 end;
 
-function NeedModsList(): Boolean;
+{ [Files] AfterInstall: once the bundled build is in, drop the older copies. }
+procedure PurgeOlderVendor(Bundled: string);
+var
+  Id: string;
 begin
-  Result := not FindWotmodIn(GetModsVersionDir(''), 'me.poliroid.modslistapi*.wotmod');
+  Id := WotmodId(Bundled);
+  PurgeOlderWotmodsIn(GetModsVersionDir(''), Id, WotmodVer(Bundled, Id));
 end;
 
 { ---- WoT-running guard (file locks) -------------------------------------- }
@@ -379,12 +490,12 @@ begin
       WizardForm.ReadyMemo.Lines.Add(#13#10 +
         'Spotting Calculator''s settings panel needs Aslain ModMenu, ' +
         'ModsList API and OpenWG GameFace (bundled; each installed only if ' +
-        'missing); its minimap rings work without them. Fair Play: it uses ' +
+        'missing or outdated); its minimap rings work without them. Fair Play: it uses ' +
         'only your own vehicle data and values you enter.');
     if WizardIsComponentSelected('teamhp') then
       WizardForm.ReadyMemo.Lines.Add(#13#10 +
         '14th_ua HP needs OpenWG GameFace (bundled; installed only if ' +
-        'missing). During a battle it sets the game option "Show vehicle HP ' +
+        'missing or outdated). During a battle it sets the game option "Show vehicle HP ' +
         'in players panel" to Never and restores your setting afterwards. ' +
         'Fair Play note: its red "one-shot" band uses only your loaded ' +
         'shell''s damage and the HP the players panel already shows. ' +

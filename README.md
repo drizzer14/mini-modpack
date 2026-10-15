@@ -17,8 +17,8 @@ A single Windows installer bundling six 14th_ua World of Tanks mods:
 The first four have no vendor dependency and each installs standalone. Spotting
 Calculator's settings panel needs Aslain ModMenu, ModsList API and OpenWG GameFace; the
 installer bundles them as a sub-option of Spotting Calculator and copies each one only if
-you don't already have a copy of it installed (an existing copy is never overwritten, and
-uninstalling never removes them, since other mods share them). The minimap rings work
+you don't already have the same or a newer version installed (an older copy is replaced
+by the bundled one, and uninstalling never removes them, since other mods share them). The minimap rings work
 without them. 14th_ua HP requires OpenWG GameFace (the overlay does not appear without
 it); the installer copies the same bundled copy along with it, under the same rule.
 
