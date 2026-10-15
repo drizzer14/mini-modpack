@@ -3,7 +3,7 @@
 ; What it does, one double-click:
 ;   1. Detects the World of Tanks install folder (registry + common paths), lets
 ;      the user confirm/override it, and validates it (version.xml present).
-;   2. Resolves the client version (e.g. 2.4.0.2) and targets mods\<version>\.
+;   2. Resolves the client version (e.g. 2.4.1.0) and targets mods\<version>\.
 ;   3. Lets the user pick which of the six bundled mods to install.
 ;   4. For each selected mod, removes any older build of that SAME mod already
 ;      in mods\<version>\ (so a re-install never double-loads two versions),
@@ -22,7 +22,7 @@
 ;         payload staged by build\gather_payload.py).
 
 #define AppVer "1.3.0"
-#define SupportedClientVersion "2.4.0.2"
+#define SupportedClientVersion "2.4.1.0"
 #include "..\payload\payload.iss"
 
 [Setup]
@@ -84,7 +84,7 @@ SelectDirBrowseLabel=Confirm your World of Tanks installation folder (the one co
 
 [Code]
 var
-  GVersion: string;  { resolved game version, e.g. 2.4.0.2 }
+  GVersion: string;  { resolved game version, e.g. 2.4.1.0 }
 
 { ---- WoT root / version detection (same shape as Garage Progress Bar's) --- }
 
@@ -96,7 +96,7 @@ begin
              FileExists(Path + '\WorldOfTanks.exe'));
 end;
 
-{ Parse "<version> v.2.4.0.2 #930 </version>" -> "2.4.0.2" }
+{ Parse "<version> v.2.4.1.0 #930 </version>" -> "2.4.1.0" }
 function ReadGameVersion(Root: string): string;
 var
   S: AnsiString;

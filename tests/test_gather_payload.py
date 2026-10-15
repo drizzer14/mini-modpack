@@ -125,3 +125,20 @@ def test_stage_vendor_rejects_sha_mismatch(tmp_path):
     with pytest.raises(SystemExit):
         gather_payload._stage_vendor(src, manifest, dest)
     assert not os.path.exists(os.path.join(dest, "a.dep_1.0.wotmod"))
+
+
+def test_supported_client_version_matches_payload_target():
+    """SupportedClientVersion must equal the client the bundled mods target
+    (14th_ua_hp's check_version.py pins it) so a client bump can't leave it stale."""
+    import re
+
+    def read(*p):
+        with open(os.path.join(*p), encoding="utf-8") as f:
+            return f.read()
+
+    hp = os.path.join(gather_payload.SIBLINGS, "14th_ua_hp", "build", "check_version.py")
+    if not os.path.isfile(hp):
+        pytest.skip("sibling 14th_ua_hp not checked out")
+    want = re.search(r'_FALLBACK_CLIENT_VERSION\s*=\s*"([^"]+)"', read(hp)).group(1)
+    iss = read(ROOT, "installer", "modpack-setup.iss")
+    assert re.search(r'#define SupportedClientVersion "([^"]+)"', iss).group(1) == want

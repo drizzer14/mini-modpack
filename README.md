@@ -22,7 +22,7 @@ by the bundled one, and uninstalling never removes them, since other mods share 
 without them. 14th_ua HP requires OpenWG GameFace (the overlay does not appear without
 it); the installer copies the same bundled copy along with it, under the same rule.
 
-Targets World of Tanks client **2.4.0.2**. The installer warns (but does not block) if
+Targets World of Tanks client **2.4.1.0**. The installer warns (but does not block) if
 your client reports a different version.
 
 ## Notes & disclaimers
