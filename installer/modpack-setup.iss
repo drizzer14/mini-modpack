@@ -21,8 +21,8 @@
 ; Build:  see installer\build_installer.ps1  (needs Inno Setup's ISCC + the
 ;         payload staged by build\gather_payload.py).
 
-#define AppVer "1.4.0"
-#define SupportedClientVersion "2.4.1.1"
+#define AppVer "1.5.0"
+#define SupportedClientVersion "2.4.2.0"
 #include "..\payload\payload.iss"
 
 [Setup]
